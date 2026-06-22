@@ -1,0 +1,1 @@
+{"prompt":"Explain quantization-aware fine-tuning in one paragraph.","bad_response":"It means the model becomes smarter because numbers are smaller.","reason":"Gives a vague and incorrect causal explanation.","tags":["quantization","accuracy"],"source":"example"}

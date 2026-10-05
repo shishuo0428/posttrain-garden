@@ -77,44 +77,36 @@ def _lora_config(lora: dict[str, Any]):
 
 
 def _training_args(method: str, output_dir: str):
-    if method == "sft":
-        try:
-            from trl import SFTConfig
+    # These configs are required by the supported TRL versions. A generic
+    # TrainingArguments fallback hides an incompatible/broken installation.
+    if method not in {"sft", "dpo"}:
+        raise ValueError("method must be 'sft' or 'dpo'")
+    from trl import DPOConfig, SFTConfig
 
-            return SFTConfig(
-                output_dir=output_dir,
-                per_device_train_batch_size=1,
-                gradient_accumulation_steps=4,
-                max_steps=20,
-                logging_steps=1,
-                save_steps=20,
-            )
-        except ImportError:
-            pass
-    if method == "dpo":
-        try:
-            from trl import DPOConfig
-
-            return DPOConfig(
-                output_dir=output_dir,
-                per_device_train_batch_size=1,
-                gradient_accumulation_steps=4,
-                max_steps=20,
-                logging_steps=1,
-                save_steps=20,
-            )
-        except ImportError:
-            pass
-    from transformers import TrainingArguments
-
-    return TrainingArguments(
+    config_class = SFTConfig if method == "sft" else DPOConfig
+    return config_class(
         output_dir=output_dir,
         per_device_train_batch_size=1,
         gradient_accumulation_steps=4,
         max_steps=20,
         logging_steps=1,
         save_steps=20,
+        # TRL defaults have changed over time; keep CPU/non-BF16 devices usable.
+        bf16=False,
+        fp16=False,
+        report_to="none",
     )
+
+
+def _load_tokenizer(model_name: str):
+    from transformers import AutoTokenizer
+
+    tokenizer = AutoTokenizer.from_pretrained(model_name)
+    if tokenizer.pad_token_id is None:
+        if tokenizer.eos_token_id is None:
+            raise ValueError("Training requires a tokenizer with a pad token or an EOS token.")
+        tokenizer.pad_token = tokenizer.eos_token
+    return tokenizer
 
 
 def _run_sft(project_dir: Path, recipe: dict[str, Any]) -> dict[str, Any]:
@@ -126,6 +118,7 @@ def _run_sft(project_dir: Path, recipe: dict[str, Any]) -> dict[str, Any]:
         model=recipe["base_model"],
         args=_training_args("sft", recipe["output_dir"]),
         train_dataset=dataset,
+        processing_class=_load_tokenizer(recipe["base_model"]),
         peft_config=_lora_config(recipe["lora"]),
     )
     trainer.train()
@@ -143,6 +136,7 @@ def _run_dpo(project_dir: Path, recipe: dict[str, Any]) -> dict[str, Any]:
         ref_model=None,
         args=_training_args("dpo", recipe["output_dir"]),
         train_dataset=dataset,
+        processing_class=_load_tokenizer(recipe["base_model"]),
         peft_config=_lora_config(recipe["lora"]),
     )
     trainer.train()
